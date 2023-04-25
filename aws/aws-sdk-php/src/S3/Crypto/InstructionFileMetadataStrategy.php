@@ -1,10 +1,9 @@
 <?php
-
 namespace Aws\S3\Crypto;
 
-use Aws\Crypto\MetadataEnvelope;
-use Aws\Crypto\MetadataStrategyInterface;
-use Aws\S3\S3Client;
+use \Aws\Crypto\MetadataStrategyInterface;
+use \Aws\Crypto\MetadataEnvelope;
+use \Aws\S3\S3Client;
 
 /**
  * Stores and reads encryption MetadataEnvelope information in a file on Amazon
@@ -20,7 +19,7 @@ use Aws\S3\S3Client;
  */
 class InstructionFileMetadataStrategy implements MetadataStrategyInterface
 {
-    const DEFAULT_FILE_SUFFIX = ".instruction";
+    const DEFAULT_FILE_SUFFIX = '.instruction';
 
     private $client;
     private $suffix;
@@ -32,7 +31,9 @@ class InstructionFileMetadataStrategy implements MetadataStrategyInterface
      */
     public function __construct(S3Client $client, $suffix = null)
     {
-        $this->suffix = empty($suffix) ? self::DEFAULT_FILE_SUFFIX : $suffix;
+        $this->suffix = empty($suffix)
+            ? self::DEFAULT_FILE_SUFFIX
+            : $suffix;
         $this->client = $client;
     }
 
@@ -49,9 +50,9 @@ class InstructionFileMetadataStrategy implements MetadataStrategyInterface
     public function save(MetadataEnvelope $envelope, array $args)
     {
         $this->client->putObject([
-            "Bucket" => $args["Bucket"],
-            "Key" => $args["Key"] . $this->suffix,
-            "Body" => json_encode($envelope),
+            'Bucket' => $args['Bucket'],
+            'Key' => $args['Key'] . $this->suffix,
+            'Body' => json_encode($envelope)
         ]);
 
         return $args;
@@ -70,11 +71,11 @@ class InstructionFileMetadataStrategy implements MetadataStrategyInterface
     public function load(array $args)
     {
         $result = $this->client->getObject([
-            "Bucket" => $args["Bucket"],
-            "Key" => $args["Key"] . $this->suffix,
+            'Bucket' => $args['Bucket'],
+            'Key' => $args['Key'] . $this->suffix
         ]);
 
-        $metadataHeaders = json_decode($result["Body"], true);
+        $metadataHeaders = json_decode($result['Body'], true);
         $envelope = new MetadataEnvelope();
         $constantValues = MetadataEnvelope::getConstantValues();
 

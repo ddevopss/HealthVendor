@@ -1,15 +1,15 @@
 <?php
-
 namespace Aws\S3\Crypto;
 
-use Aws\Crypto\AbstractCryptoClientV2;
-use Aws\Crypto\Cipher\CipherBuilderTrait;
 use Aws\Crypto\DecryptionTraitV2;
-use Aws\Crypto\EncryptionTraitV2;
-use Aws\Crypto\MetadataEnvelope;
 use Aws\Exception\CryptoException;
 use Aws\HashingStream;
 use Aws\PhpHash;
+use Aws\Crypto\AbstractCryptoClientV2;
+use Aws\Crypto\EncryptionTraitV2;
+use Aws\Crypto\MetadataEnvelope;
+use Aws\Crypto\MaterialsProvider;
+use Aws\Crypto\Cipher\CipherBuilderTrait;
 use Aws\S3\S3Client;
 use GuzzleHttp\Promise;
 use GuzzleHttp\Promise\PromiseInterface;
@@ -87,7 +87,7 @@ class S3EncryptionClientV2 extends AbstractCryptoClientV2
     use EncryptionTraitV2;
     use UserAgentTrait;
 
-    const CRYPTO_VERSION = "2.1";
+    const CRYPTO_VERSION = '2.1';
 
     private $client;
     private $instructionFileSuffix;
@@ -101,15 +101,120 @@ class S3EncryptionClientV2 extends AbstractCryptoClientV2
      *                                           default when using instruction
      *                                           files for metadata storage.
      */
-    public function __construct(S3Client $client, $instructionFileSuffix = null)
-    {
-        $this->appendUserAgent(
-            $client,
-            "feat/s3-encrypt/" . self::CRYPTO_VERSION
-        );
+    public function __construct(
+        S3Client $client,
+        $instructionFileSuffix = null
+    ) {
+        $this->appendUserAgent($client, 'feat/s3-encrypt/' . self::CRYPTO_VERSION);
         $this->client = $client;
         $this->instructionFileSuffix = $instructionFileSuffix;
         $this->legacyWarningCount = 0;
+    }
+
+    private static function getDefaultStrategy()
+    {
+        return new HeadersMetadataStrategy();
+    }
+
+    /**
+     * Encrypts the data in the 'Body' field of $args and promises to upload it
+     * to the specified location on S3.
+     *
+     * Note that for PHP versions of < 7.1, this operation uses an AES-GCM
+     * polyfill for encryption since there is no native PHP support. The
+     * performance for large inputs will be a lot slower than for PHP 7.1+, so
+     * upgrading older PHP version environments may be necessary to use this
+     * effectively.
+     *
+     * @param array $args Arguments for encrypting an object and uploading it
+     *                    to S3 via PutObject.
+     *
+     * The required configuration arguments are as follows:
+     *
+     * - @MaterialsProvider: (MaterialsProviderV2) Provides Cek, Iv, and Cek
+     *   encrypting/decrypting for encryption metadata.
+     * - @CipherOptions: (array) Cipher options for encrypting data. Only the
+     *   Cipher option is required. Accepts the following:
+     *       - Cipher: (string) gcm
+     *            See also: AbstractCryptoClientV2::$supportedCiphers
+     *       - KeySize: (int) 128|256
+     *            See also: MaterialsProvider::$supportedKeySizes
+     *       - Aad: (string) Additional authentication data. This option is
+     *            passed directly to OpenSSL when using gcm. Note if you pass in
+     *            Aad, the PHP SDK will be able to decrypt the resulting object,
+     *            but other AWS SDKs may not be able to do so.
+     * - @KmsEncryptionContext: (array) Only required if using
+     *   KmsMaterialsProviderV2. An associative array of key-value
+     *   pairs to be added to the encryption context for KMS key encryption. An
+     *   empty array may be passed if no additional context is desired.
+     *
+     * The optional configuration arguments are as follows:
+     *
+     * - @MetadataStrategy: (MetadataStrategy|string|null) Strategy for storing
+     *   MetadataEnvelope information. Defaults to using a
+     *   HeadersMetadataStrategy. Can either be a class implementing
+     *   MetadataStrategy, a class name of a predefined strategy, or empty/null
+     *   to default.
+     * - @InstructionFileSuffix: (string|null) Suffix used when writing to an
+     *   instruction file if using an InstructionFileMetadataHandler.
+     *
+     * @return PromiseInterface
+     *
+     * @throws \InvalidArgumentException Thrown when arguments above are not
+     *                                   passed or are passed incorrectly.
+     */
+    public function putObjectAsync(array $args)
+    {
+        $provider = $this->getMaterialsProvider($args);
+        unset($args['@MaterialsProvider']);
+
+        $instructionFileSuffix = $this->getInstructionFileSuffix($args);
+        unset($args['@InstructionFileSuffix']);
+
+        $strategy = $this->getMetadataStrategy($args, $instructionFileSuffix);
+        unset($args['@MetadataStrategy']);
+
+        $envelope = new MetadataEnvelope();
+
+        return Promise\Create::promiseFor($this->encrypt(
+            Psr7\Utils::streamFor($args['Body']),
+            $args,
+            $provider,
+            $envelope
+        ))->then(
+            function ($encryptedBodyStream) use ($args) {
+                $hash = new PhpHash('sha256');
+                $hashingEncryptedBodyStream = new HashingStream(
+                    $encryptedBodyStream,
+                    $hash,
+                    self::getContentShaDecorator($args)
+                );
+                return [$hashingEncryptedBodyStream, $args];
+            }
+        )->then(
+            function ($putObjectContents) use ($strategy, $envelope) {
+                list($bodyStream, $args) = $putObjectContents;
+                if ($strategy === null) {
+                    $strategy = self::getDefaultStrategy();
+                }
+
+                $updatedArgs = $strategy->save($envelope, $args);
+                $updatedArgs['Body'] = $bodyStream;
+                return $updatedArgs;
+            }
+        )->then(
+            function ($args) {
+                unset($args['@CipherOptions']);
+                return $this->client->putObjectAsync($args);
+            }
+        );
+    }
+
+    private static function getContentShaDecorator(&$args)
+    {
+        return function ($hash) use (&$args) {
+            $args['ContentSHA256'] = bin2hex($hash);
+        };
     }
 
     /**
@@ -167,158 +272,6 @@ class S3EncryptionClientV2 extends AbstractCryptoClientV2
     }
 
     /**
-     * Encrypts the data in the 'Body' field of $args and promises to upload it
-     * to the specified location on S3.
-     *
-     * Note that for PHP versions of < 7.1, this operation uses an AES-GCM
-     * polyfill for encryption since there is no native PHP support. The
-     * performance for large inputs will be a lot slower than for PHP 7.1+, so
-     * upgrading older PHP version environments may be necessary to use this
-     * effectively.
-     *
-     * @param array $args Arguments for encrypting an object and uploading it
-     *                    to S3 via PutObject.
-     *
-     * The required configuration arguments are as follows:
-     *
-     * - @MaterialsProvider: (MaterialsProviderV2) Provides Cek, Iv, and Cek
-     *   encrypting/decrypting for encryption metadata.
-     * - @CipherOptions: (array) Cipher options for encrypting data. Only the
-     *   Cipher option is required. Accepts the following:
-     *       - Cipher: (string) gcm
-     *            See also: AbstractCryptoClientV2::$supportedCiphers
-     *       - KeySize: (int) 128|256
-     *            See also: MaterialsProvider::$supportedKeySizes
-     *       - Aad: (string) Additional authentication data. This option is
-     *            passed directly to OpenSSL when using gcm. Note if you pass in
-     *            Aad, the PHP SDK will be able to decrypt the resulting object,
-     *            but other AWS SDKs may not be able to do so.
-     * - @KmsEncryptionContext: (array) Only required if using
-     *   KmsMaterialsProviderV2. An associative array of key-value
-     *   pairs to be added to the encryption context for KMS key encryption. An
-     *   empty array may be passed if no additional context is desired.
-     *
-     * The optional configuration arguments are as follows:
-     *
-     * - @MetadataStrategy: (MetadataStrategy|string|null) Strategy for storing
-     *   MetadataEnvelope information. Defaults to using a
-     *   HeadersMetadataStrategy. Can either be a class implementing
-     *   MetadataStrategy, a class name of a predefined strategy, or empty/null
-     *   to default.
-     * - @InstructionFileSuffix: (string|null) Suffix used when writing to an
-     *   instruction file if using an InstructionFileMetadataHandler.
-     *
-     * @return PromiseInterface
-     *
-     * @throws \InvalidArgumentException Thrown when arguments above are not
-     *                                   passed or are passed incorrectly.
-     */
-    public function putObjectAsync(array $args)
-    {
-        $provider = $this->getMaterialsProvider($args);
-        unset($args["@MaterialsProvider"]);
-
-        $instructionFileSuffix = $this->getInstructionFileSuffix($args);
-        unset($args["@InstructionFileSuffix"]);
-
-        $strategy = $this->getMetadataStrategy($args, $instructionFileSuffix);
-        unset($args["@MetadataStrategy"]);
-
-        $envelope = new MetadataEnvelope();
-
-        return Promise\Create::promiseFor(
-            $this->encrypt(
-                Psr7\Utils::streamFor($args["Body"]),
-                $args,
-                $provider,
-                $envelope
-            )
-        )
-            ->then(function ($encryptedBodyStream) use ($args) {
-                $hash = new PhpHash("sha256");
-                $hashingEncryptedBodyStream = new HashingStream(
-                    $encryptedBodyStream,
-                    $hash,
-                    self::getContentShaDecorator($args)
-                );
-                return [$hashingEncryptedBodyStream, $args];
-            })
-            ->then(function ($putObjectContents) use ($strategy, $envelope) {
-                list($bodyStream, $args) = $putObjectContents;
-                if ($strategy === null) {
-                    $strategy = self::getDefaultStrategy();
-                }
-
-                $updatedArgs = $strategy->save($envelope, $args);
-                $updatedArgs["Body"] = $bodyStream;
-                return $updatedArgs;
-            })
-            ->then(function ($args) {
-                unset($args["@CipherOptions"]);
-                return $this->client->putObjectAsync($args);
-            });
-    }
-
-    private static function getContentShaDecorator(&$args)
-    {
-        return function ($hash) use (&$args) {
-            $args["ContentSHA256"] = bin2hex($hash);
-        };
-    }
-
-    private static function getDefaultStrategy()
-    {
-        return new HeadersMetadataStrategy();
-    }
-
-    /**
-     * Retrieves an object from S3 and decrypts the data in the 'Body' field.
-     *
-     * @param array $args Arguments for retrieving an object from S3 via
-     *                    GetObject and decrypting it.
-     *
-     * The required configuration argument is as follows:
-     *
-     * - @MaterialsProvider: (MaterialsProviderInterface) Provides Cek, Iv, and Cek
-     *   encrypting/decrypting for decryption metadata. May have data loaded
-     *   from the MetadataEnvelope upon decryption.
-     * - @SecurityProfile: (string) Must be set to 'V2' or 'V2_AND_LEGACY'.
-     *      - 'V2' indicates that only objects encrypted with S3EncryptionClientV2
-     *        content encryption and key wrap schemas are able to be decrypted.
-     *      - 'V2_AND_LEGACY' indicates that objects encrypted with both
-     *        S3EncryptionClientV2 and older legacy encryption clients are able
-     *        to be decrypted.
-     *
-     * The optional configuration arguments are as follows:
-     *
-     * - SaveAs: (string) The path to a file on disk to save the decrypted
-     *   object data. This will be handled by file_put_contents instead of the
-     *   Guzzle sink.
-     * - @InstructionFileSuffix: (string|null) Suffix used when looking for an
-     *   instruction file if an InstructionFileMetadataHandler was detected.
-     * - @CipherOptions: (array) Cipher options for encrypting data. A Cipher
-     *   is required. Accepts the following options:
-     *       - Aad: (string) Additional authentication data. This option is
-     *            passed directly to OpenSSL when using gcm. It is ignored when
-     *            using cbc.
-     * - @KmsAllowDecryptWithAnyCmk: (bool) This allows decryption with
-     *   KMS materials for any KMS key ID, instead of needing the KMS key ID to
-     *   be specified and provided to the decrypt operation. Ignored for non-KMS
-     *   materials providers. Defaults to false.
-     *
-     * @return \Aws\Result GetObject call result with the 'Body' field
-     *                     wrapped in a decryption stream with its metadata
-     *                     information.
-     *
-     * @throws \InvalidArgumentException Thrown when arguments above are not
-     *                                   passed or are passed incorrectly.
-     */
-    public function getObject(array $args)
-    {
-        return $this->getObjectAsync($args)->wait();
-    }
-
-    /**
      * Promises to retrieve an object from S3 and decrypt the data in the
      * 'Body' field.
      *
@@ -367,90 +320,127 @@ class S3EncryptionClientV2 extends AbstractCryptoClientV2
     public function getObjectAsync(array $args)
     {
         $provider = $this->getMaterialsProvider($args);
-        unset($args["@MaterialsProvider"]);
+        unset($args['@MaterialsProvider']);
 
         $instructionFileSuffix = $this->getInstructionFileSuffix($args);
-        unset($args["@InstructionFileSuffix"]);
+        unset($args['@InstructionFileSuffix']);
 
         $strategy = $this->getMetadataStrategy($args, $instructionFileSuffix);
-        unset($args["@MetadataStrategy"]);
+        unset($args['@MetadataStrategy']);
 
-        if (
-            !isset($args["@SecurityProfile"]) ||
-            !in_array(
-                $args["@SecurityProfile"],
-                self::$supportedSecurityProfiles
-            )
+        if (!isset($args['@SecurityProfile'])
+            || !in_array($args['@SecurityProfile'], self::$supportedSecurityProfiles)
         ) {
-            throw new CryptoException(
-                "@SecurityProfile is required and must be" .
-                    " set to 'V2' or 'V2_AND_LEGACY'"
-            );
+            throw new CryptoException("@SecurityProfile is required and must be"
+                . " set to 'V2' or 'V2_AND_LEGACY'");
         }
 
         // Only throw this legacy warning once per client
-        if (
-            in_array(
-                $args["@SecurityProfile"],
-                self::$legacySecurityProfiles
-            ) &&
-            $this->legacyWarningCount < 1
+        if (in_array($args['@SecurityProfile'], self::$legacySecurityProfiles)
+            && $this->legacyWarningCount < 1
         ) {
             $this->legacyWarningCount++;
             trigger_error(
-                "This S3 Encryption Client operation is configured to" .
-                    " read encrypted data with legacy encryption modes. If you" .
-                    " don't have objects encrypted with these legacy modes," .
-                    " you should disable support for them to enhance security. ",
+                "This S3 Encryption Client operation is configured to"
+                    . " read encrypted data with legacy encryption modes. If you"
+                    . " don't have objects encrypted with these legacy modes,"
+                    . " you should disable support for them to enhance security. ",
                 E_USER_WARNING
             );
         }
 
         $saveAs = null;
-        if (!empty($args["SaveAs"])) {
-            $saveAs = $args["SaveAs"];
+        if (!empty($args['SaveAs'])) {
+            $saveAs = $args['SaveAs'];
         }
 
-        $promise = $this->client
-            ->getObjectAsync($args)
-            ->then(function ($result) use (
-                $provider,
-                $instructionFileSuffix,
-                $strategy,
-                $args
-            ) {
-                if ($strategy === null) {
-                    $strategy = $this->determineGetObjectStrategy(
-                        $result,
-                        $instructionFileSuffix
-                    );
-                }
-
-                $envelope = $strategy->load(
-                    $args + [
-                        "Metadata" => $result["Metadata"],
-                    ]
-                );
-
-                $result["Body"] = $this->decrypt(
-                    $result["Body"],
+        $promise = $this->client->getObjectAsync($args)
+            ->then(
+                function ($result) use (
                     $provider,
-                    $envelope,
+                    $instructionFileSuffix,
+                    $strategy,
                     $args
-                );
-                return $result;
-            })
-            ->then(function ($result) use ($saveAs) {
-                if (!empty($saveAs)) {
-                    file_put_contents(
-                        $saveAs,
-                        (string) $result["Body"],
-                        LOCK_EX
+                ) {
+                    if ($strategy === null) {
+                        $strategy = $this->determineGetObjectStrategy(
+                            $result,
+                            $instructionFileSuffix
+                        );
+                    }
+
+                    $envelope = $strategy->load($args + [
+                        'Metadata' => $result['Metadata']
+                    ]);
+
+                    $result['Body'] = $this->decrypt(
+                        $result['Body'],
+                        $provider,
+                        $envelope,
+                        $args
                     );
+                    return $result;
                 }
-                return $result;
-            });
+            )->then(
+                function ($result) use ($saveAs) {
+                    if (!empty($saveAs)) {
+                        file_put_contents(
+                            $saveAs,
+                            (string)$result['Body'],
+                            LOCK_EX
+                        );
+                    }
+                    return $result;
+                }
+            );
 
         return $promise;
+    }
+
+    /**
+     * Retrieves an object from S3 and decrypts the data in the 'Body' field.
+     *
+     * @param array $args Arguments for retrieving an object from S3 via
+     *                    GetObject and decrypting it.
+     *
+     * The required configuration argument is as follows:
+     *
+     * - @MaterialsProvider: (MaterialsProviderInterface) Provides Cek, Iv, and Cek
+     *   encrypting/decrypting for decryption metadata. May have data loaded
+     *   from the MetadataEnvelope upon decryption.
+     * - @SecurityProfile: (string) Must be set to 'V2' or 'V2_AND_LEGACY'.
+     *      - 'V2' indicates that only objects encrypted with S3EncryptionClientV2
+     *        content encryption and key wrap schemas are able to be decrypted.
+     *      - 'V2_AND_LEGACY' indicates that objects encrypted with both
+     *        S3EncryptionClientV2 and older legacy encryption clients are able
+     *        to be decrypted.
+     *
+     * The optional configuration arguments are as follows:
+     *
+     * - SaveAs: (string) The path to a file on disk to save the decrypted
+     *   object data. This will be handled by file_put_contents instead of the
+     *   Guzzle sink.
+     * - @InstructionFileSuffix: (string|null) Suffix used when looking for an
+     *   instruction file if an InstructionFileMetadataHandler was detected.
+     * - @CipherOptions: (array) Cipher options for encrypting data. A Cipher
+     *   is required. Accepts the following options:
+     *       - Aad: (string) Additional authentication data. This option is
+     *            passed directly to OpenSSL when using gcm. It is ignored when
+     *            using cbc.
+     * - @KmsAllowDecryptWithAnyCmk: (bool) This allows decryption with
+     *   KMS materials for any KMS key ID, instead of needing the KMS key ID to
+     *   be specified and provided to the decrypt operation. Ignored for non-KMS
+     *   materials providers. Defaults to false.
+     *
+     * @return \Aws\Result GetObject call result with the 'Body' field
+     *                     wrapped in a decryption stream with its metadata
+     *                     information.
+     *
+     * @throws \InvalidArgumentException Thrown when arguments above are not
+     *                                   passed or are passed incorrectly.
+     */
+    public function getObject(array $args)
+    {
+        return $this->getObjectAsync($args)->wait();
     }
 }

@@ -1152,10 +1152,10 @@ class Request
      * @return bool
      */
     public function isSecure()
-    { 
+    {
         if ($this->isFromTrustedProxy() && $proto = $this->getTrustedValues(self::HEADER_X_FORWARDED_PROTO)) {
             return \in_array(strtolower($proto[0]), ['https', 'on', 'ssl', '1'], true);
-	}
+        }
 
         $https = $this->server->get('HTTPS');
 
@@ -2057,7 +2057,7 @@ class Request
             foreach (explode(',', $this->headers->get(self::TRUSTED_HEADERS[$type])) as $v) {
                 $clientValues[] = (self::HEADER_X_FORWARDED_PORT === $type ? '0.0.0.0:' : '').trim($v);
             }
-	}
+        }
 
         if ((self::$trustedHeaderSet & self::HEADER_FORWARDED) && (isset(self::FORWARDED_PARAMS[$type])) && $this->headers->has(self::TRUSTED_HEADERS[self::HEADER_FORWARDED])) {
             $forwarded = $this->headers->get(self::TRUSTED_HEADERS[self::HEADER_FORWARDED]);
@@ -2075,10 +2075,8 @@ class Request
                     $v = '0.0.0.0'.$v;
                 }
                 $forwardedValues[] = $v;
-	    }
-
-	}
-
+            }
+        }
 
         if (null !== $ip) {
             $clientValues = $this->normalizeAndFilterClientIps($clientValues, $ip);

@@ -1,5 +1,4 @@
 <?php
-
 namespace Aws\PI;
 
 use Aws\AwsClient;
@@ -19,6 +18,4 @@ use Aws\AwsClient;
  * @method \Aws\Result listAvailableResourceMetrics(array $args = [])
  * @method \GuzzleHttp\Promise\Promise listAvailableResourceMetricsAsync(array $args = [])
  */
-class PIClient extends AwsClient
-{
-}
+class PIClient extends AwsClient {}

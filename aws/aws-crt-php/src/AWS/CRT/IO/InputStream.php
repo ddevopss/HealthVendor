@@ -3,19 +3,17 @@
  * Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
  * SPDX-License-Identifier: Apache-2.0.
  */
-
 namespace AWS\CRT\IO;
 
 use AWS\CRT\NativeResource as NativeResource;
 
-final class InputStream extends NativeResource
-{
-    const SEEK_BEGIN = 0;
-    const SEEK_END = 2;
+final class InputStream extends NativeResource {
     private $stream = null;
 
-    public function __construct($stream)
-    {
+    const SEEK_BEGIN = 0;
+    const SEEK_END = 2;
+
+    public function __construct($stream) {
         $this->stream = $stream;
         $options = self::$crt->input_stream_options_new();
         // The stream implementation in native just converts the PHP stream into
@@ -25,32 +23,27 @@ final class InputStream extends NativeResource
         self::$crt->input_stream_options_release($options);
     }
 
-    public function __destruct()
-    {
+    public function __destruct() {
         self::$crt->input_stream_release($this->release());
         parent::__destruct();
     }
 
-    public function eof()
-    {
+    public function eof() {
         return self::$crt->input_stream_eof($this->native);
     }
 
-    public function read($length = 0)
-    {
+    public function length() {
+        return self::$crt->input_stream_get_length($this->native);
+    }
+
+    public function read($length = 0) {
         if ($length == 0) {
             $length = $this->length();
         }
         return self::$crt->input_stream_read($this->native, $length);
     }
 
-    public function length()
-    {
-        return self::$crt->input_stream_get_length($this->native);
-    }
-
-    public function seek($offset, $basis)
-    {
+    public function seek($offset, $basis) {
         return self::$crt->input_stream_seek($this->native, $offset, $basis);
     }
 }

@@ -1,5 +1,4 @@
 <?php
-
 namespace Aws\S3\Exception;
 
 use Aws\CommandInterface;
@@ -16,39 +15,20 @@ class S3MultipartUploadException extends \Aws\Exception\MultipartUploadException
     private $filename;
 
     /**
-     * @param UploadState $state Upload state at time of the exception.
-     * @param \Exception|array $prev Exception being thrown. Could be an array of
+     * @param UploadState      $state Upload state at time of the exception.
+     * @param \Exception|array $prev  Exception being thrown. Could be an array of
      *                                AwsExceptions being thrown when uploading parts
      *                                for one object, or an instance of AwsException
      *                                for a specific Multipart error being thrown in
      *                                the MultipartUpload process.
      */
-    public function __construct(UploadState $state, $prev = null)
-    {
-        if (is_array($prev) && ($error = $prev[key($prev)])) {
+    public function __construct(UploadState $state, $prev = null) {
+        if (is_array($prev) && $error = $prev[key($prev)]) {
             $this->collectPathInfo($error->getCommand());
         } elseif ($prev instanceof AwsException) {
             $this->collectPathInfo($prev->getCommand());
         }
         parent::__construct($state, $prev);
-    }
-
-    /**
-     * Collect file path information when accessible. (Bucket, Key)
-     *
-     * @param CommandInterface $cmd
-     */
-    private function collectPathInfo(CommandInterface $cmd)
-    {
-        if (empty($this->bucket) && isset($cmd["Bucket"])) {
-            $this->bucket = $cmd["Bucket"];
-        }
-        if (empty($this->key) && isset($cmd["Key"])) {
-            $this->key = $cmd["Key"];
-        }
-        if (empty($this->filename) && isset($cmd["Body"])) {
-            $this->filename = $cmd["Body"]->getMetadata("uri");
-        }
     }
 
     /**
@@ -82,5 +62,23 @@ class S3MultipartUploadException extends \Aws\Exception\MultipartUploadException
     public function getSourceFileName()
     {
         return $this->filename;
+    }
+
+    /**
+     * Collect file path information when accessible. (Bucket, Key)
+     *
+     * @param CommandInterface $cmd
+     */
+    private function collectPathInfo(CommandInterface $cmd)
+    {
+        if (empty($this->bucket) && isset($cmd['Bucket'])) {
+            $this->bucket = $cmd['Bucket'];
+        }
+        if (empty($this->key) && isset($cmd['Key'])) {
+            $this->key = $cmd['Key'];
+        }
+        if (empty($this->filename) && isset($cmd['Body'])) {
+            $this->filename = $cmd['Body']->getMetadata('uri');
+        }
     }
 }

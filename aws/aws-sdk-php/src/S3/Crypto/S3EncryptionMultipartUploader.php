@@ -1,11 +1,10 @@
 <?php
-
 namespace Aws\S3\Crypto;
 
 use Aws\Crypto\AbstractCryptoClient;
-use Aws\Crypto\Cipher\CipherBuilderTrait;
 use Aws\Crypto\EncryptionTrait;
 use Aws\Crypto\MetadataEnvelope;
+use Aws\Crypto\Cipher\CipherBuilderTrait;
 use Aws\S3\MultipartUploader;
 use Aws\S3\S3ClientInterface;
 use GuzzleHttp\Promise;
@@ -25,7 +24,20 @@ class S3EncryptionMultipartUploader extends MultipartUploader
     use EncryptionTrait;
     use UserAgentTrait;
 
-    const CRYPTO_VERSION = "1n";
+    const CRYPTO_VERSION = '1n';
+
+    /**
+     * Returns if the passed cipher name is supported for encryption by the SDK.
+     *
+     * @param string $cipherName The name of a cipher to verify is registered.
+     *
+     * @return bool If the cipher passed is in our supported list.
+     */
+    public static function isSupportedCipher($cipherName)
+    {
+        return in_array($cipherName, AbstractCryptoClient::$supportedCiphers);
+    }
+
     private $provider;
     private $instructionFileSuffix;
     private $strategy;
@@ -87,32 +99,29 @@ class S3EncryptionMultipartUploader extends MultipartUploader
      *   options are ignored.
      *
      * @param S3ClientInterface $client Client used for the upload.
-     * @param mixed $source Source of the data to upload.
-     * @param array $config Configuration used to perform the upload.
+     * @param mixed             $source Source of the data to upload.
+     * @param array             $config Configuration used to perform the upload.
      */
     public function __construct(
         S3ClientInterface $client,
         $source,
         array $config = []
     ) {
-        $this->appendUserAgent(
-            $client,
-            "feat/s3-encrypt/" . self::CRYPTO_VERSION
-        );
+        $this->appendUserAgent($client, 'feat/s3-encrypt/' . self::CRYPTO_VERSION);
         $this->client = $client;
-        $config["params"] = [];
-        if (!empty($config["bucket"])) {
-            $config["params"]["Bucket"] = $config["bucket"];
+        $config['params'] = [];
+        if (!empty($config['bucket'])) {
+            $config['params']['Bucket'] = $config['bucket'];
         }
-        if (!empty($config["key"])) {
-            $config["params"]["Key"] = $config["key"];
+        if (!empty($config['key'])) {
+            $config['params']['Key'] = $config['key'];
         }
 
         $this->provider = $this->getMaterialsProvider($config);
-        unset($config["@MaterialsProvider"]);
+        unset($config['@MaterialsProvider']);
 
         $this->instructionFileSuffix = $this->getInstructionFileSuffix($config);
-        unset($config["@InstructionFileSuffix"]);
+        unset($config['@InstructionFileSuffix']);
         $this->strategy = $this->getMetadataStrategy(
             $config,
             $this->instructionFileSuffix
@@ -120,9 +129,9 @@ class S3EncryptionMultipartUploader extends MultipartUploader
         if ($this->strategy === null) {
             $this->strategy = self::getDefaultStrategy();
         }
-        unset($config["@MetadataStrategy"]);
+        unset($config['@MetadataStrategy']);
 
-        $config["prepare_data_source"] = $this->getEncryptingDataPreparer();
+        $config['prepare_data_source'] = $this->getEncryptingDataPreparer();
 
         parent::__construct($client, $source, $config);
     }
@@ -134,41 +143,27 @@ class S3EncryptionMultipartUploader extends MultipartUploader
 
     private function getEncryptingDataPreparer()
     {
-        return function () {
+        return function() {
             // Defer encryption work until promise is executed
             $envelope = new MetadataEnvelope();
 
-            list($this->source, $params) = Promise\Create::promiseFor(
-                $this->encrypt(
-                    $this->source,
-                    $this->config["@cipheroptions"] ?: [],
-                    $this->provider,
-                    $envelope
-                )
-            )
-                ->then(function ($bodyStream) use ($envelope) {
+            list($this->source, $params) = Promise\Create::promiseFor($this->encrypt(
+                $this->source,
+                $this->config['@cipheroptions'] ?: [],
+                $this->provider,
+                $envelope
+            ))->then(
+                function ($bodyStream) use ($envelope) {
                     $params = $this->strategy->save(
                         $envelope,
-                        $this->config["params"]
+                        $this->config['params']
                     );
                     return [$bodyStream, $params];
-                })
-                ->wait();
+                }
+            )->wait();
 
             $this->source->rewind();
-            $this->config["params"] = $params;
+            $this->config['params'] = $params;
         };
-    }
-
-    /**
-     * Returns if the passed cipher name is supported for encryption by the SDK.
-     *
-     * @param string $cipherName The name of a cipher to verify is registered.
-     *
-     * @return bool If the cipher passed is in our supported list.
-     */
-    public static function isSupportedCipher($cipherName)
-    {
-        return in_array($cipherName, AbstractCryptoClient::$supportedCiphers);
     }
 }

@@ -24,22 +24,14 @@
         }
     },
     "build_steps": [
-        [
-            "phpize"
-        ],
-        [
-            "./configure"
-        ],
-        [
-            "make"
-        ]
+        ["phpize"],
+        ["./configure"],
+        ["make"]
     ],
     "test_env": {
         "NO_INTERACTION": "1"
     },
     "test_steps": [
-        [
-            "./run_tests"
-        ]
+        ["./run_tests"]
     ]
 }

@@ -1,5 +1,4 @@
 <?php
-
 namespace Aws\S3\Exception;
 
 use Aws\HasMonitoringEventsTrait;
@@ -18,18 +17,16 @@ class DeleteMultipleObjectsException extends \Exception implements
     private $errors = [];
 
     /**
-     * @param array $deleted Array of successfully deleted keys
-     * @param array $errors Array of errors that were encountered
+     * @param array       $deleted Array of successfully deleted keys
+     * @param array       $errors  Array of errors that were encountered
      */
     public function __construct(array $deleted, array $errors)
     {
         $this->deleted = array_values($deleted);
         $this->errors = array_values($errors);
-        parent::__construct(
-            "Unable to delete certain keys when executing a" .
-                " DeleteMultipleObjects request: " .
-                self::createMessageFromErrors($errors)
-        );
+        parent::__construct('Unable to delete certain keys when executing a'
+            . ' DeleteMultipleObjects request: '
+            . self::createMessageFromErrors($errors));
     }
 
     /**
@@ -41,13 +38,9 @@ class DeleteMultipleObjectsException extends \Exception implements
      */
     public static function createMessageFromErrors(array $errors)
     {
-        return "\n- " .
-            implode(
-                "\n- ",
-                array_map(function ($key) {
-                    return json_encode($key);
-                }, $errors)
-            );
+        return "\n- " . implode("\n- ", array_map(function ($key) {
+            return json_encode($key);
+        }, $errors));
     }
 
     /**

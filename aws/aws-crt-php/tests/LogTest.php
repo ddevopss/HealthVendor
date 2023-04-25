@@ -3,15 +3,13 @@
  * Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
  * SPDX-License-Identifier: Apache-2.0.
  */
-
 use AWS\CRT\Log;
 
-require_once "common.inc";
+require_once('common.inc');
 
-class LogTest extends CrtTestCase
-{
-    public function testLogToStream()
-    {
+class LogTest extends CrtTestCase {
+
+    public function testLogToStream() {
         $log_stream = fopen("php://memory", "r+");
         $this->assertNotNull($log_stream);
         Log::toStream($log_stream);

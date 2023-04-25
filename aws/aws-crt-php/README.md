@@ -1,14 +1,12 @@
 # AWS Common Runtime PHP bindings
 
 ## Requirements
-
 * PHP 5.5+ on UNIX platforms, 7.2+ on Windows
 * CMake 3.x
 * GCC 4.4+, clang 3.8+ on UNIX, Visual Studio 2017 build tools on Windows
 * Tests require [Composer](https://getcomposer.org)
 
 ## Building on UNIX
-
 ```sh
 $ git clone --recursive https://github.com/awslabs/aws-crt-php.git
 $ cd aws-crt-php
@@ -18,10 +16,7 @@ $ make && make test
 ```
 
 ## Building on Windows
-
-* First, ensure that you are able to build PHP on windows via the PHP SDK (this example assumes installation of the SDK
-  to C:\php-sdk and that you've checked out the PHP source to php-src within the build directory). The following
-  resources are helpful to get PHP building on windows:
+* First, ensure that you are able to build PHP on windows via the PHP SDK (this example assumes installation of the SDK to C:\php-sdk and that you've checked out the PHP source to php-src within the build directory). The following resources are helpful to get PHP building on windows:
     * https://github.com/microsoft/php-sdk-binary-tools
     * https://medium.com/@erinus/how-to-build-php-on-windows-a7ad0a87862a
     * https://medium.com/@erinus/how-to-build-php-extension-on-windows-d1667290f809
@@ -57,11 +52,10 @@ $ nmake test-awscrt
 ```
 
 ## Debugging
-
 Using [PHPBrew](https://github.com/phpbrew/phpbrew) to build/manage multiple versions of PHP is helpful.
 
-Note: You must use a debug build of PHP to debug native extensions. See
-the [PHP Internals Book](https://www.phpinternalsbook.com/php7/build_system/building_php.html) for more info
+Note: You must use a debug build of PHP to debug native extensions. 
+See the [PHP Internals Book](https://www.phpinternalsbook.com/php7/build_system/building_php.html) for more info
 
 ```shell
 # PHP 8 example
@@ -74,7 +68,8 @@ $ ./configure
 $ make CMAKE_BUILD_TYPE=Debug
 ```
 
-Ensure that the php you launch from your debugger is the result of `which php`, not just the system default php.
+Ensure that the php you launch from your debugger is the result of `which php`, not just
+the system default php.
 
 ## Security
 

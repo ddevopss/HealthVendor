@@ -1,5 +1,4 @@
 <?php
-
 namespace Aws\MQ;
 
 use Aws\AwsClient;
@@ -51,6 +50,4 @@ use Aws\AwsClient;
  * @method \Aws\Result updateUser(array $args = [])
  * @method \GuzzleHttp\Promise\Promise updateUserAsync(array $args = [])
  */
-class MQClient extends AwsClient
-{
-}
+class MQClient extends AwsClient {}
