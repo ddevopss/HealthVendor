@@ -70,8 +70,6 @@ class ClientRequestWatcher extends Watcher
     {
         $content = $response->body();
 
-        return $content;
-
         if (is_string($content)) {
             if (is_array(json_decode($content, true)) &&
                 json_last_error() === JSON_ERROR_NONE) {

@@ -84,4 +84,5 @@ return array(
     '7e519c840bfe3453b2bcd05f0ec3c8eb' => $baseDir . '/app/Helper/array_helpers.php',
     'e85cf3ff4b293825b8a59a2157bc3cde' => $baseDir . '/app/Helper/care_rider_helpers.php',
     'd1f2836c82d48eb86d084b9b1f31d6cf' => $baseDir . '/app/Helper/product_helpers.php',
+    'c874af5f4bdcce527bdb32a3a0abf57d' => $baseDir . '/app/Helper/http_log_helpers.php',
 );
